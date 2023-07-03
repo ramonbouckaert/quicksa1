@@ -5,6 +5,8 @@ QuickSA1 is an easy-to-use tool for rapidly generating printable PDF maps of SA1
 
 QuickSA1 is written in Kotlin, and expects a Postgresql database with the PostGIS extension installed. When built, QuickSA1 produces two executable JARs: a command-line tool for setting up QuickSA1, and a JAR that can be used as an AWS Lambda function.
 
+A hosted version of this tool can be used at [https://www.quicksa1.com/{INSERT_SA1_HERE}](https://www.quicksa1.com/80106106801)
+
 ## Build
 To build all modules, run:
 
