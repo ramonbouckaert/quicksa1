@@ -1,0 +1,6 @@
+{
+  "database": {
+    "driver": "net.postgis.jdbc.DriverWrapper"
+  },
+  "httpClient": {}
+}

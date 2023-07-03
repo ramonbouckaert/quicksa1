@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:spatial="http://www.liquibase.org/xml/ns/dbchangelog-ext/liquibase-spatial"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd"
+>
+    <changeSet author="ramon" id="v0-create-multipolygons-table">
+        <createTable tableName="multipolygons">
+            <column name="id" type="uuid">
+                <constraints nullable="false" primaryKey="true" />
+            </column>
+            <column name="geometry" type="geometry(MultiPolygon, 3857)">
+                <constraints nullable="false" />
+            </column>
+        </createTable>
+        <createIndex tableName="multipolygons" indexName="multipolygons_id_idx" unique="true" clustered="true">
+            <column name="id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="ramon" id="v0-create-multipolygons-spatial-index">
+        <preConditions>
+            <not>
+                <spatial:spatialIndexExists tableName="multipolygons" columnNames="geometry" />
+            </not>
+        </preConditions>
+        <sql>
+            CREATE INDEX multipolygons_geometry_idx
+            ON multipolygons
+            USING GIST (geometry);
+        </sql>
+    </changeSet>
+
+    <changeSet author="ramon" id="v0-create-sa4s-table">
+        <createTable tableName="sa4s">
+            <column name="id" type="smallint">
+                <constraints nullable="false" primaryKey="true" />
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false" />
+            </column>
+            <column name="polygon" type="uuid">
+                <constraints nullable="false" />
+            </column>
+            <column name="state" type="varchar(3)">
+                <constraints nullable="false" />
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="sa4s" baseColumnNames="polygon" constraintName="sa4s_multipolygons_fk"
+                                 referencedTableName="multipolygons"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+
+        <createIndex tableName="sa4s" indexName="sa4s_id_idx" unique="true">
+            <column name="id"/>
+        </createIndex>
+        <createIndex tableName="sa4s" indexName="sa4s_polygon_idx" unique="true" clustered="true">
+            <column name="polygon"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="ramon" id="v0-create-sa3s-table">
+        <createTable tableName="sa3s">
+            <column name="id" type="int">
+                <constraints nullable="false" primaryKey="true" />
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false" />
+            </column>
+            <column name="polygon" type="uuid">
+                <constraints nullable="false" />
+            </column>
+            <column name="sa4" type="smallint">
+                <constraints nullable="false" />
+            </column>
+            <column name="state" type="varchar(3)">
+                <constraints nullable="false" />
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="sa3s" baseColumnNames="polygon" constraintName="sa3s_multipolygons_fk"
+                                 referencedTableName="multipolygons"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+        <addForeignKeyConstraint baseTableName="sa3s" baseColumnNames="sa4" constraintName="sa3s_sa4s_fk"
+                                 referencedTableName="sa4s"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+        <createIndex tableName="sa3s" indexName="sa3s_id_idx" unique="true">
+            <column name="id"/>
+        </createIndex>
+        <createIndex tableName="sa3s" indexName="sa3s_polygon_idx" unique="true" clustered="true">
+            <column name="polygon"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="ramon" id="v0-create-sa2s-table">
+        <createTable tableName="sa2s">
+            <column name="id" type="int">
+                <constraints nullable="false" primaryKey="true" />
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false" />
+            </column>
+            <column name="polygon" type="uuid">
+                <constraints nullable="false" />
+            </column>
+            <column name="sa3" type="int">
+                <constraints nullable="false" />
+            </column>
+            <column name="sa4" type="smallint">
+                <constraints nullable="false" />
+            </column>
+            <column name="state" type="varchar(3)">
+                <constraints nullable="false" />
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="sa2s" baseColumnNames="polygon" constraintName="sa2s_multipolygons_fk"
+                                 referencedTableName="multipolygons"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+        <addForeignKeyConstraint baseTableName="sa2s" baseColumnNames="sa3" constraintName="sa2s_sa3s_fk"
+                                 referencedTableName="sa3s"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+        <addForeignKeyConstraint baseTableName="sa2s" baseColumnNames="sa4" constraintName="sa2s_sa4s_fk"
+                                 referencedTableName="sa4s"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+        <createIndex tableName="sa2s" indexName="sa2s_id_idx" unique="true">
+            <column name="id"/>
+        </createIndex>
+        <createIndex tableName="sa2s" indexName="sa2s_polygon_idx" unique="true" clustered="true">
+            <column name="polygon"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="ramon" id="v0-create-sa1s-table">
+        <createTable tableName="sa1s">
+            <column name="id" type="bigint">
+                <constraints nullable="false" primaryKey="true" />
+            </column>
+            <column name="polygon" type="uuid">
+                <constraints nullable="false" />
+            </column>
+            <column name="sa2" type="int">
+                <constraints nullable="false" />
+            </column>
+            <column name="sa3" type="int">
+                <constraints nullable="false" />
+            </column>
+            <column name="sa4" type="smallint">
+                <constraints nullable="false" />
+            </column>
+            <column name="state" type="varchar(3)">
+                <constraints nullable="false" />
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="sa1s" baseColumnNames="polygon" constraintName="sa1s_multipolygons_fk"
+                                 referencedTableName="multipolygons"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+        <addForeignKeyConstraint baseTableName="sa1s" baseColumnNames="sa2" constraintName="sa1s_sa2s_fk"
+                                 referencedTableName="sa2s"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+        <addForeignKeyConstraint baseTableName="sa1s" baseColumnNames="sa3" constraintName="sa1s_sa3s_fk"
+                                 referencedTableName="sa3s"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+        <addForeignKeyConstraint baseTableName="sa1s" baseColumnNames="sa4" constraintName="sa1s_sa4s_fk"
+                                 referencedTableName="sa4s"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+        <createIndex tableName="sa1s" indexName="sa1s_id_idx" unique="true">
+            <column name="id"/>
+        </createIndex>
+        <createIndex tableName="sa1s" indexName="sa1s_polygon_idx" unique="true" clustered="true">
+            <column name="polygon"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
