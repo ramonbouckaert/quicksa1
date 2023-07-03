@@ -48,3 +48,11 @@ You can test the lambda by using the following event JSON:
 ```
 
 You should receive back a JSON object that has a `body` property that contains a Base64-encoded binary PDF file.
+
+## TODO
+- I want the maps to be entirely vector based, no pixelated raster underlay.
+- I want blocks and house number on the map. I will probably add blocks in the data model and write ingestors for each state planning authority. This might remove the need for an underlay altogether.
+- It needs to be faster! It's a bit too slow right now to be worthy of the name QuickSA1
+- I want to be able to enter an SA2 code and generate a multi-page PDF of every SA1 within that SA2.
+- I want to be able to request SA1s by their human-readable name (e.g. `Suburb 5`) as well as by their code.
+- I want a web interface of some kind so you can find and choose the SA1 to generate, rather than having to know the code.
