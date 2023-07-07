@@ -32,7 +32,7 @@ class PDFRenderer(
         val (geometry, suburbName, suburbIndex) = fetchSA1(sa1) ?: return null
 
         log("Instantiating map")
-        val mapCanvas = OSMMapCanvas(geometry, coroutineScope, log)
+        val mapCanvas = CadastreMapCanvas(database, geometry, coroutineScope, log)
         val map = mapCanvas.map.await()
 
         log("Instantiating renderer")

@@ -13,6 +13,7 @@ import org.geotools.map.Layer
 import org.geotools.map.MapContent
 import org.geotools.styling.Style
 import org.opengis.feature.simple.SimpleFeature
+import org.opengis.geometry.BoundingBox
 import java.awt.Color
 
 abstract class MapCanvas(
@@ -33,7 +34,7 @@ abstract class MapCanvas(
     val sa1Feature: Deferred<SimpleFeature> = coroutineScope.async(start = CoroutineStart.LAZY) { createSA1Feature() }
     val map: Deferred<MapContent> = coroutineScope.async(start = CoroutineStart.LAZY) { createMap() }
 
-    abstract fun createUnderlayLayer(): Layer
+    abstract suspend fun createUnderlayLayers(boundingBox: BoundingBox): List<Layer>
 
     private suspend fun createMap(): MapContent {
         log("Instantiating map and adding layers")
@@ -43,7 +44,7 @@ abstract class MapCanvas(
 
         return MapContent().apply {
             title = sa1.toString()
-            addLayer(createUnderlayLayer())
+            addLayers(createUnderlayLayers(sa1Feature.await().bounds))
             addLayer(
                 FeatureLayer(
                     featureCollection,

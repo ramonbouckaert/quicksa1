@@ -20,7 +20,7 @@ class ACTIngestor(
     private val blocksGeoJsonUrl: String,
     private val roadReservesGeoJsonUrl: String
 ) {
-    private val srid = 3857
+    private val srid = 4326
     private var featuresProcessed = 0
 
     private val przRegex = Regex("PRZ")
