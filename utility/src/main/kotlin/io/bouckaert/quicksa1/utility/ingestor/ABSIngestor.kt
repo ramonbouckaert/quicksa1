@@ -1,5 +1,6 @@
 package io.bouckaert.quicksa1.utility.ingestor
 
+import com.zaxxer.hikari.HikariDataSource
 import io.bouckaert.quicksa1.shared.db.enums.State
 import io.bouckaert.quicksa1.shared.filterNotNull
 import io.bouckaert.quicksa1.shared.processInParallel
@@ -10,18 +11,17 @@ import io.ktor.http.*
 import io.ktor.utils.io.jvm.javaio.*
 import mil.nga.geopackage.GeoPackageManager
 import mil.nga.geopackage.features.user.FeatureRow
-import org.jetbrains.exposed.sql.*
-import org.jetbrains.exposed.sql.transactions.TransactionManager
-import org.jetbrains.exposed.sql.transactions.experimental.suspendedTransactionAsync
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 
 class ABSIngestor(
-    private val database: Database,
+    private val hikariDataSource: HikariDataSource,
     private val httpClient: HttpClient,
-    private val absStructuresGeoPackageUrl: String?
+    private val absStructuresGeoPackageUrl: String
 ) {
+    var featuresProcessed = 0
 
     companion object {
         val stateCodeMapping = mapOf(
@@ -37,8 +37,6 @@ class ABSIngestor(
     }
 
     suspend fun load() {
-        if (absStructuresGeoPackageUrl == null) throw Error("No URL provided for ABS: Main Structure and Greater Capital City Statistical Areas GeoPackage")
-
         val absFile = runCatching { File.createTempFile("abs", ".gpkg").apply { this.deleteOnExit() } }.getOrThrow()
 
         try {
@@ -205,99 +203,101 @@ class ABSIngestor(
                     }.associateBy { it.getValueString(sa1CodeColumnName).toLongOrNull() }.filterNotNull()
                     .filterInvalidState(stateCodeColumnName)
 
-                suspendedTransactionAsync(db = database) {
-                    TransactionManager.current().connection.let { conn ->
-                        // Add each SA4
-                        sa4Features.processInParallel { sa4Feature ->
-                            val statement = conn.prepareStatement(sa4InsertSql(), false)
-
-                            statement.fillParameters(
-                                listOf(
-                                    ShortColumnType() to sa4Feature.key,
-                                    VarCharColumnType() to sa4Feature.value.getValueString(sa4NameColumnName),
-                                    VarCharColumnType() to sa4Feature.value.getValueString(stateCodeColumnName)
-                                        .toInt().let(stateCodeMapping::get)?.name,
-                                    BlobColumnType() to sa4Feature.value.geometry.wkb,
-                                    IntegerColumnType() to sa4Feature.value.geometry.srsId
-                                )
+                // Add each SA4
+                sa4Features.chunked(16).map { chunkedSa4Features ->
+                    chunkedSa4Features.processInParallel { sa4Feature ->
+                        hikariDataSource.connection.use { conn ->
+                            val statement = conn.prepareStatement(sa4InsertSql())
+                            statement.setShort(1, sa4Feature.key)
+                            statement.setString(2, sa4Feature.value.getValueString(sa4NameColumnName))
+                            statement.setString(
+                                3, sa4Feature.value.getValueString(stateCodeColumnName)
+                                    .toInt().let(stateCodeMapping::get)?.name
                             )
-
+                            statement.setBinaryStream(4, ByteArrayInputStream(sa4Feature.value.geometry.wkb))
+                            statement.setInt(5, sa4Feature.value.geometry.srsId)
                             statement.executeUpdate()
+                            conn.close()
                         }
-
-                        // Add each SA3
-                        sa3Features.processInParallel { sa3Feature ->
-                            val statement = conn.prepareStatement(sa3InsertSql(), false)
-
-                            statement.fillParameters(
-                                listOf(
-                                    IntegerColumnType() to sa3Feature.key,
-                                    VarCharColumnType() to sa3Feature.value.getValueString(sa3NameColumnName),
-                                    ShortColumnType() to sa3Feature.value.getValueString(sa4CodeColumnName)
-                                        .toShort(),
-                                    VarCharColumnType() to sa3Feature.value.getValueString(stateCodeColumnName)
-                                        .toInt().let(stateCodeMapping::get)?.name,
-                                    BlobColumnType() to sa3Feature.value.geometry.wkb,
-                                    IntegerColumnType() to sa3Feature.value.geometry.srsId
-                                )
-                            )
-
-                            statement.executeUpdate()
-                        }
-
-                        // Add each SA2
-                        sa2Features.processInParallel { sa2Feature ->
-                            val statement = conn.prepareStatement(sa2InsertSql(), false)
-
-                            statement.fillParameters(
-                                listOf(
-                                    IntegerColumnType() to sa2Feature.key,
-                                    VarCharColumnType() to sa2Feature.value.getValueString(sa2NameColumnName),
-                                    IntegerColumnType() to sa2Feature.value.getValueString(sa3CodeColumnName)
-                                        .toInt(),
-                                    ShortColumnType() to sa2Feature.value.getValueString(sa4CodeColumnName)
-                                        .toShort(),
-                                    VarCharColumnType() to sa2Feature.value.getValueString(stateCodeColumnName)
-                                        .toInt().let(stateCodeMapping::get)?.name,
-                                    BlobColumnType() to sa2Feature.value.geometry.wkb,
-                                    IntegerColumnType() to sa2Feature.value.geometry.srsId
-                                )
-                            )
-
-                            statement.executeUpdate()
-                        }
-
-                        // Add each SA1
-                        sa1Features.processInParallel { sa1Feature ->
-                            val statement = conn.prepareStatement(sa1InsertSql(), false)
-
-                            statement.fillParameters(
-                                listOf(
-                                    LongColumnType() to sa1Feature.key,
-                                    IntegerColumnType() to sa1Feature.value.getValueString(sa2CodeColumnName)
-                                        .toInt(),
-                                    IntegerColumnType() to sa1Feature.value.getValueString(sa3CodeColumnName)
-                                        .toInt(),
-                                    ShortColumnType() to sa1Feature.value.getValueString(sa4CodeColumnName)
-                                        .toShort(),
-                                    VarCharColumnType() to sa1Feature.value.getValueString(stateCodeColumnName)
-                                        .toInt().let(stateCodeMapping::get)?.name,
-                                    BlobColumnType() to sa1Feature.value.geometry.wkb,
-                                    IntegerColumnType() to sa1Feature.value.geometry.srsId
-                                )
-                            )
-
-                            statement.executeUpdate()
-                        }
+                        featuresProcessed++
+                        if (featuresProcessed % 50 == 0) print("\rFeatures added: $featuresProcessed")
                     }
+                }
 
-                }.await()
+                // Add each SA3
+                sa3Features.chunked(16).map { chunkedSa3Features ->
+                    chunkedSa3Features.processInParallel { sa3Feature ->
+                        hikariDataSource.connection.use { conn ->
+                            val statement = conn.prepareStatement(sa3InsertSql())
+                            statement.setInt(1, sa3Feature.key)
+                            statement.setString(2, sa3Feature.value.getValueString(sa3NameColumnName))
+                            statement.setShort(3, sa3Feature.value.getValueString(sa4CodeColumnName).toShort())
+                            statement.setString(
+                                4, sa3Feature.value.getValueString(stateCodeColumnName)
+                                    .toInt().let(stateCodeMapping::get)?.name
+                            )
+                            statement.setBinaryStream(5, ByteArrayInputStream(sa3Feature.value.geometry.wkb))
+                            statement.setInt(6, sa3Feature.value.geometry.srsId)
+                            statement.executeUpdate()
+                            conn.close()
+                        }
+                        featuresProcessed++
+                        if (featuresProcessed % 50 == 0) print("\rFeatures added: $featuresProcessed")
+                    }
+                }
+
+                // Add each SA2
+                sa2Features.chunked(16).map { chunkedSa2Features ->
+                    chunkedSa2Features.processInParallel { sa2Feature ->
+                        hikariDataSource.connection.use { conn ->
+                            val statement = conn.prepareStatement(sa2InsertSql())
+                            statement.setInt(1, sa2Feature.key)
+                            statement.setString(2, sa2Feature.value.getValueString(sa2NameColumnName))
+                            statement.setInt(3, sa2Feature.value.getValueString(sa3CodeColumnName).toInt())
+                            statement.setShort(4, sa2Feature.value.getValueString(sa4CodeColumnName).toShort())
+                            statement.setString(
+                                5, sa2Feature.value.getValueString(stateCodeColumnName)
+                                    .toInt().let(stateCodeMapping::get)?.name
+                            )
+                            statement.setBinaryStream(6, ByteArrayInputStream(sa2Feature.value.geometry.wkb))
+                            statement.setInt(7, sa2Feature.value.geometry.srsId)
+                            statement.executeUpdate()
+                            conn.close()
+                        }
+                        featuresProcessed++
+                        if (featuresProcessed % 50 == 0) print("\rFeatures added: $featuresProcessed")
+                    }
+                }
+
+                // Add each SA1
+                sa1Features.chunked(16).map { chunkedSa1Features ->
+                    chunkedSa1Features.processInParallel { sa1Feature ->
+                        hikariDataSource.connection.use { conn ->
+                            val statement = conn.prepareStatement(sa1InsertSql())
+                            statement.setLong(1, sa1Feature.key)
+                            statement.setInt(2, sa1Feature.value.getValueString(sa2CodeColumnName).toInt())
+                            statement.setInt(3, sa1Feature.value.getValueString(sa3CodeColumnName).toInt())
+                            statement.setShort(4, sa1Feature.value.getValueString(sa4CodeColumnName).toShort())
+                            statement.setString(
+                                5, sa1Feature.value.getValueString(stateCodeColumnName)
+                                    .toInt().let(stateCodeMapping::get)?.name
+                            )
+                            statement.setBinaryStream(6, ByteArrayInputStream(sa1Feature.value.geometry.wkb))
+                            statement.setInt(7, sa1Feature.value.geometry.srsId)
+                            statement.executeUpdate()
+                            conn.close()
+                        }
+                        featuresProcessed++
+                        if (featuresProcessed % 50 == 0) print("\rFeatures added: $featuresProcessed")
+                    }
+                }
             } finally {
                 absGeoPackage.close()
             }
         } finally {
             absFile.delete()
         }
+        println()
     }
 
     private fun sa1InsertSql(numberOfGeometries: Int = 1) = """
@@ -363,7 +363,8 @@ class ABSIngestor(
                 ) + "]),3857))"
             }) +
             " FROM ins1;"
-    private fun Map<*, FeatureRow>.filterInvalidState(stateCodeColumnName: String?) =
+
+    private fun <T> Map<T, FeatureRow>.filterInvalidState(stateCodeColumnName: String?) =
         this.filterValues { it.isStateValid(stateCodeColumnName) }
 
     private fun List<FeatureRow>.filterInvalidState(stateCodeColumnName: String?) =

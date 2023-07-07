@@ -5,7 +5,8 @@ class AppConfig {
     data class Config(
         val database: Database,
         val httpClient: HttpClient,
-        val absStructuresGeoPackageUrl: String?
+        val abs: ABS?,
+        val act: ACT
     )
     data class Database(
         val url: String?,
@@ -15,5 +16,14 @@ class AppConfig {
     data class HttpClient(
         val verifyCertificates: Boolean = true,
         val timeoutSeconds: Int = Int.MAX_VALUE
+    )
+
+    data class ABS(
+        val absStructuresGeoPackageUrl: String?
+    )
+
+    data class ACT(
+        val blocksGeoJsonUrl: String?,
+        val roadReservesGeoJsonUrl: String?
     )
 }

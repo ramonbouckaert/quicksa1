@@ -6,5 +6,6 @@
     <property name="blob" dbms="postgresql" value="longblob" />
     <property name="blob" value="blob" />
     <include file="changelog-v0.xml" relativeToChangelogFile="true" />
+    <include file="changelog-v0.2.xml" relativeToChangelogFile="true" />
 
 </databaseChangeLog>

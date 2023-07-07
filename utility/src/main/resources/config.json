@@ -1,6 +1,14 @@
 {
   "database": {
+    "url": "jdbc:postgresql_postGIS://quicksa1-db.cmuhohsstc8i.ap-southeast-2.rds.amazonaws.com/quicksa1?user=postgres&password=postgresram",
     "driver": "net.postgis.jdbc.DriverWrapper"
   },
-  "httpClient": {}
+  "httpClient": {},
+  "act": {
+    "blocksGeoJsonUrl": "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_BLOCK_CURRENT/FeatureServer/0/query",
+    "roadReservesGeoJsonUrl": "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_ROAD_RESERVES/FeatureServer/0/query"
+  },
+  "abs": {
+    "absStructuresGeoPackageUrl": "https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs-edition-3/jul2021-jun2026/access-and-downloads/digital-boundary-files/ASGS_2021_MAIN_STRUCTURE_GPKG_GDA2020.zip"
+  }
 }

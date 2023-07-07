@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:spatial="http://www.liquibase.org/xml/ns/dbchangelog-ext/liquibase-spatial"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd"
+>
+    <changeSet id="v0.2-create-blocks-table" author="ramon">
+        <createTable tableName="blocks">
+            <column name="id" type="uuid">
+                <constraints nullable="false" primaryKey="true" />
+            </column>
+            <column name="polygon" type="uuid">
+                <constraints nullable="false" />
+            </column>
+            <column name="type" type="varchar(16)">
+                <constraints nullable="false" />
+            </column>
+            <column name="street_number" type="int">
+                <constraints nullable="true" />
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="blocks" baseColumnNames="polygon" constraintName="blocks_multipolygons_fk"
+                                 referencedTableName="multipolygons"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+
+        <createIndex tableName="blocks" indexName="blocks_id_idx" unique="true">
+            <column name="id"/>
+        </createIndex>
+        <createIndex tableName="blocks" indexName="blocks_polygon_idx" unique="true" clustered="true">
+            <column name="polygon"/>
+        </createIndex>
+    </changeSet>
+    <changeSet id="v0.2-create-roads-table" author="ramon">
+        <createTable tableName="roads">
+            <column name="id" type="uuid">
+                <constraints nullable="false" primaryKey="true" />
+            </column>
+            <column name="polygon" type="uuid">
+                <constraints nullable="false" />
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="true" />
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="roads" baseColumnNames="polygon" constraintName="roads_multipolygons_fk"
+                                 referencedTableName="multipolygons"
+                                 referencedColumnNames="id" onDelete="CASCADE" />
+
+        <createIndex tableName="roads" indexName="roads_id_idx" unique="true">
+            <column name="id"/>
+        </createIndex>
+        <createIndex tableName="roads" indexName="roads_polygon_idx" unique="true" clustered="true">
+            <column name="polygon"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

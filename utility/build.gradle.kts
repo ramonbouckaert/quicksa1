@@ -2,6 +2,7 @@ plugins {
     kotlin("jvm") version "1.8.22"
     application
     id("com.github.johnrengelman.shadow") version "8.1.1"
+    kotlin("plugin.serialization") version "1.8.22"
 }
 
 repositories {
@@ -24,9 +25,14 @@ dependencies {
     implementation("com.tersesystems.logback:logback-classic:1.1.1")
     implementation("io.ktor:ktor-client-jvm:2.2.4")
     implementation("io.ktor:ktor-client-cio-jvm:2.2.4")
+    implementation("io.ktor:ktor-client-content-negotiation:2.2.4")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:2.2.4")
     implementation("org.jetbrains.exposed:exposed-core:0.40.1")
     implementation("org.jetbrains.exposed:exposed-jdbc:0.40.1")
     implementation("org.jetbrains.exposed:exposed-dao:0.40.1")
+    implementation("io.bouckaert:jts2geojson-kotlin:0.21.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.0")
+    implementation("com.zaxxer:HikariCP:5.0.1")
     testImplementation(kotlin("test"))
 }
 
