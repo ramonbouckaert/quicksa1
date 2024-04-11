@@ -118,7 +118,7 @@ class App(
 
         print("Produce test PDF? (y/n): ")
         if (keyboard.nextLine().lowercase().startsWith("y")) {
-            val pdfOutputStream = runBlocking { PDFRenderer(database, ::println).renderPdf(80105105105) }
+            val pdfOutputStream = runBlocking { PDFRenderer(database, ::println).renderPdf(80104103408) }
             if (pdfOutputStream == null) {
                 println("SA1 could not be found in the database")
                 return

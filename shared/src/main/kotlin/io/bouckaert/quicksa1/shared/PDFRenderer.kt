@@ -16,7 +16,6 @@ import io.bouckaert.quicksa1.shared.db.enums.BlockType
 import io.bouckaert.quicksa1.shared.db.tables.Blocks
 import io.bouckaert.quicksa1.shared.db.tables.MultiPolygons
 import io.bouckaert.quicksa1.shared.db.tables.Roads
-import kotlinx.coroutines.CoroutineScope
 import net.postgis.jdbc.PGbox2d
 import net.postgis.jdbc.geometry.Point
 import org.jetbrains.exposed.sql.Database
@@ -31,10 +30,7 @@ import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Font
 import java.awt.Graphics2D
-import java.awt.geom.FlatteningPathIterator
 import java.io.ByteArrayOutputStream
-import kotlin.coroutines.coroutineContext
-import kotlin.math.abs
 
 class PDFRenderer(
     private val database: Database,
@@ -43,8 +39,6 @@ class PDFRenderer(
     private val srid = 3857
     private val geometryFactory = GeometryFactory(PrecisionModel(PrecisionModel.FLOATING), srid)
     suspend fun renderPdf(sa1: Long): ByteArrayOutputStream? {
-        val coroutineScope = CoroutineScope(coroutineContext)
-
         log("Fetching SA1 from database")
         val (sa1DatabaseGeometry, suburbName, suburbIndex) = fetchSA1(sa1) ?: return null
 
@@ -172,39 +166,46 @@ class PDFRenderer(
 
             // Draw road labels
             collectedRoads.map { road ->
-                val voronoi = VoronoiDiagramBuilder().apply {
-                    if (road.value.geometry is GeometryCollection) {
-                        setSites(road.value.geometry.union().getGeometryN(0))
-                    } else {
-                        setSites(road.value.geometry)
-                    }
-                    setClipEnvelope(road.value.geometry.envelopeInternal)
-                }.getDiagram(geometryFactory)
+                val voronoi = try {
+                    VoronoiDiagramBuilder().apply {
+                        if (road.value.geometry is GeometryCollection) {
+                            setSites(road.value.geometry.union().getGeometryN(0))
+                        } else {
+                            setSites(road.value.geometry)
+                        }
+                        setClipEnvelope(road.value.geometry.envelopeInternal)
+                    }.getDiagram(geometryFactory)
+                } catch (e: TopologyException) { null }
+
                 val centrelineMerger = LineMerger()
                 var lineAdded = false
-                for (i in 0 until voronoi.numGeometries) {
-                    val geom = voronoi.getGeometryN(i).boundary
-                    for (j in 0 until geom.numPoints - 1) {
-                        val actualGeom: LineString =
-                            if (geom is MultiLineString) geom.getGeometryN(0) as LineString else geom as LineString
-                        val individualLine = try {
-                            LineString(
-                                CoordinateArraySequence(
-                                    arrayOf(
-                                        actualGeom.getCoordinateN(j),
-                                        actualGeom.getCoordinateN(j + 1)
-                                    )
-                                ),
-                                geometryFactory
-                            )
-                        } catch (e: IndexOutOfBoundsException) { null }
-                        if (
-                            individualLine != null &&
-                            road.value.geometry !is GeometryCollection &&
-                            individualLine.within(road.value.geometry)
-                        ) {
-                            centrelineMerger.add(individualLine)
-                            lineAdded = true
+                if (voronoi != null) {
+                    for (i in 0 until voronoi.numGeometries) {
+                        val geom = voronoi.getGeometryN(i).boundary
+                        for (j in 0 until geom.numPoints - 1) {
+                            val actualGeom: LineString =
+                                if (geom is MultiLineString) geom.getGeometryN(0) as LineString else geom as LineString
+                            val individualLine = try {
+                                LineString(
+                                    CoordinateArraySequence(
+                                        arrayOf(
+                                            actualGeom.getCoordinateN(j),
+                                            actualGeom.getCoordinateN(j + 1)
+                                        )
+                                    ),
+                                    geometryFactory
+                                )
+                            } catch (e: IndexOutOfBoundsException) {
+                                null
+                            }
+                            if (
+                                individualLine != null &&
+                                road.value.geometry !is GeometryCollection &&
+                                individualLine.within(road.value.geometry)
+                            ) {
+                                centrelineMerger.add(individualLine)
+                                lineAdded = true
+                            }
                         }
                     }
                 }
