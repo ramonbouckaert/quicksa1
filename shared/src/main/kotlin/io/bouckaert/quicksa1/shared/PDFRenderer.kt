@@ -122,22 +122,24 @@ class PDFRenderer(
             }
 
             // Sum geometry for roads of the same name
-            val collectedRoads = roads.fold(mutableMapOf<String, RoadDto>()) { acc, roadDto ->
-                if (roadDto.name != null) {
-                    val existing = acc[roadDto.name]
-                    if (
-                        existing == null
-                    ) {
-                        acc[roadDto.name] = roadDto
-                    } else {
-                        acc[roadDto.name] = RoadDto(
-                            roadDto.name,
-                            existing.geometry.union(roadDto.geometry)
-                        )
+            val collectedRoads =
+                roads.fold(mutableMapOf<String, RoadDto>()) { acc, roadDto ->
+                    if (roadDto.name != null) {
+                        val existing = acc[roadDto.name]
+                        if (
+                            existing == null
+                        ) {
+                            acc[roadDto.name] = roadDto
+                        } else {
+                            acc[roadDto.name] = RoadDto(
+                                roadDto.name,
+                                existing.geometry.safeUnion(roadDto.geometry, geometryFactory)
+                            )
+                        }
                     }
+                    acc
                 }
-                acc
-            }
+
 
             // Draw roads geometry
             renderer.setColorBackground(ColorCode(180, 180, 180))
@@ -164,40 +166,67 @@ class PDFRenderer(
                 if (block.streetNumber != null) {
                     val centroid = block.geometry.centroid
                     val text = block.streetNumber.toString()
-                    renderer.drawString(centroid.x, centroid.y, text, 4, -text.length, 0)
+                    renderer.drawString(centroid.x, centroid.y, text, 5, -text.length, 0)
                 }
             }
 
             // Draw road labels
             collectedRoads.map { road ->
                 val voronoi = VoronoiDiagramBuilder().apply {
-                    setSites(road.value.geometry)
+                    if (road.value.geometry is GeometryCollection) {
+                        setSites(road.value.geometry.union().getGeometryN(0))
+                    } else {
+                        setSites(road.value.geometry)
+                    }
                     setClipEnvelope(road.value.geometry.envelopeInternal)
                 }.getDiagram(geometryFactory)
                 val centrelineMerger = LineMerger()
+                var lineAdded = false
                 for (i in 0 until voronoi.numGeometries) {
-                    val geom = ((voronoi.getGeometryN(i) as Polygon).boundary as LineString)
+                    val geom = voronoi.getGeometryN(i).boundary
                     for (j in 0 until geom.numPoints - 1) {
-                        val individualLine = LineString(
-                            CoordinateArraySequence(
-                                arrayOf(
-                                    geom.getCoordinateN(j),
-                                    geom.getCoordinateN(j + 1)
-                                )
-                            ),
-                            geometryFactory
-                        )
+                        val actualGeom: LineString =
+                            if (geom is MultiLineString) geom.getGeometryN(0) as LineString else geom as LineString
+                        val individualLine = try {
+                            LineString(
+                                CoordinateArraySequence(
+                                    arrayOf(
+                                        actualGeom.getCoordinateN(j),
+                                        actualGeom.getCoordinateN(j + 1)
+                                    )
+                                ),
+                                geometryFactory
+                            )
+                        } catch (e: IndexOutOfBoundsException) { null }
                         if (
+                            individualLine != null &&
                             road.value.geometry !is GeometryCollection &&
                             individualLine.within(road.value.geometry)
                         ) {
                             centrelineMerger.add(individualLine)
+                            lineAdded = true
                         }
                     }
                 }
                 @Suppress("UNCHECKED_CAST")
-                val centreLineStrings: Collection<LineString> =
+                val centreLineStrings: Collection<LineString> = if (lineAdded) {
                     centrelineMerger.mergedLineStrings as Collection<LineString>
+                } else {
+                    var geomArray: Array<LineString> = emptyArray()
+                    when (road.value.geometry) {
+                        is LineString -> geomArray += road.value.geometry as LineString
+                        is Polygon -> geomArray += (road.value.geometry as Polygon).exteriorRing
+                        is MultiPolygon, is GeometryCollection -> {
+                            for (i in 0 until road.value.geometry.numGeometries) {
+                                when (val innerGeom = road.value.geometry.getGeometryN(i)) {
+                                    is LineString -> geomArray += innerGeom
+                                    is Polygon -> geomArray += innerGeom.exteriorRing
+                                }
+                            }
+                        }
+                    }
+                    geomArray.toList()
+                }
                 val longest = centreLineStrings.fold(null as LineString?) { acc, lineString: LineString ->
                     if (acc == null) lineString else {
                         if (acc.length > lineString.length) acc else lineString
@@ -217,7 +246,7 @@ class PDFRenderer(
                     )
                     while (angle > (Math.PI / 2)) angle -= Math.PI
                     graphics2D.rotate(-angle)
-                    graphics2D.font = Font("Verdana", Font.PLAIN, 5)
+                    graphics2D.font = Font("Verdana", Font.PLAIN, 6)
                     graphics2D.drawString(road.key.titlecase(), 0, 0)
                     graphics2D.transform = origRotate
                 }

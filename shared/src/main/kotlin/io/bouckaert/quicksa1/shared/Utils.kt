@@ -1,6 +1,9 @@
 package io.bouckaert.quicksa1.shared
 
 import kotlinx.coroutines.*
+import org.locationtech.jts.geom.Geometry
+import org.locationtech.jts.geom.GeometryCollection
+import org.locationtech.jts.geom.GeometryFactory
 import java.awt.Rectangle
 import kotlin.math.roundToInt
 
@@ -49,3 +52,24 @@ fun Rectangle.scale(scale: Int) = Rectangle(
     this.width*scale,
     this.height*scale
 )
+
+fun Geometry.safeUnion(other: Geometry, geometryFactory: GeometryFactory): Geometry {
+    if (this !is GeometryCollection && other !is GeometryCollection) {
+        return this.union(other)
+    } else if (other !is GeometryCollection) {
+        val unionedThis = this.union()
+        if (unionedThis is GeometryCollection) return other else return unionedThis.union(other)
+    } else if (this !is GeometryCollection) {
+        val unionedOther = other.union()
+        if (unionedOther is GeometryCollection) return this else return this.union(unionedOther)
+    } else {
+        var geomArray: Array<Geometry> = emptyArray()
+        for (i in 0 until this.numGeometries) {
+            geomArray += this.getGeometryN(i)
+        }
+        for (i in 0 until other.numGeometries) {
+            geomArray += other.getGeometryN(i)
+        }
+        return GeometryCollection(geomArray, geometryFactory)
+    }
+}
