@@ -12,6 +12,13 @@ repositories {
     maven {
         url = uri("https://packages.atlassian.com/maven-3rdparty/")
     }
+    maven {
+        url = uri("https://mvn.topobyte.de")
+    }
+    maven {
+        url = uri("https://mvn.slimjars.com")
+    }
+    mavenLocal()
     mavenCentral()
 }
 

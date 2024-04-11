@@ -5,6 +5,15 @@ import org.locationtech.jts.geom.impl.CoordinateArraySequence
 
 object PolygonMapper {
     @JvmStatic
+    fun net.postgis.jdbc.geometry.MultiPolygon.mapToJts(
+        geometryFactory: GeometryFactory,
+        invert: Boolean = false
+    ): org.locationtech.jts.geom.MultiPolygon =
+        geometryFactory.createMultiPolygon(
+            this.polygons.map { it.mapToJts(geometryFactory, invert) }.toTypedArray()
+        )
+
+    @JvmStatic
     fun net.postgis.jdbc.geometry.Polygon.mapToJts(
         geometryFactory: GeometryFactory,
         invert: Boolean = false
@@ -55,7 +64,7 @@ object PolygonMapper {
             .exteriorRing.expandEnvelope(1_000_000F, geometryFactory)
     }
 
-    private fun org.locationtech.jts.geom.LinearRing.expandEnvelope(
+    private fun org.locationtech.jts.geom.LineString.expandEnvelope(
         number: Float,
         geometryFactory: GeometryFactory
     ): org.locationtech.jts.geom.LinearRing {

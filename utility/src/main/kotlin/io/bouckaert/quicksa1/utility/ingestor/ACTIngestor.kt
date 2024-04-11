@@ -20,17 +20,31 @@ class ACTIngestor(
     private val blocksGeoJsonUrl: String,
     private val roadReservesGeoJsonUrl: String
 ) {
+    companion object {
+        private val przRegex = Regex(".*PRZ.*")
+        private val nuzRegex = Regex(".*NUZ.*")
+        private val cfRegex = Regex(".*CF.*")
+        private val tszRegex = Regex(".*TSZ.*")
+        private val czRegex = Regex(".*CZ.*")
+        private val izRegex = Regex(".*IZ.*")
+        private val rzRegex = Regex(".*(^|[^P])RZ.*")
+        private val desRegex = Regex(".*DES.*")
+
+        fun parseBlockType(input: String?, waterFlag: Boolean?): BlockType {
+            if (input == null) return BlockType.RESIDENTIAL
+            if (waterFlag != null && waterFlag) return BlockType.WATER
+            if (input.matches(przRegex) || input.matches(nuzRegex)) return BlockType.PARK
+            if (input.matches(cfRegex) || input.matches(tszRegex)) return BlockType.COMMUNITY
+            if (input.matches(czRegex) || input.matches(izRegex)) return BlockType.COMMERCIAL
+            if (input.matches(rzRegex)) return BlockType.RESIDENTIAL
+            if (input.matches(desRegex)) return BlockType.PARK
+            return BlockType.RESIDENTIAL
+        }
+    }
+
     private val srid = 4326
     private var featuresProcessed = 0
 
-    private val przRegex = Regex("PRZ")
-    private val nuzRegex = Regex("NUZ")
-    private val cfRegex = Regex("CF")
-    private val tszRegex = Regex("TSZ")
-    private val czRegex = Regex("CZ")
-    private val izRegex = Regex("IZ")
-    private val rzRegex = Regex("(^|[^P])RZ")
-    private val desRegex = Regex("DES")
     suspend fun load() {
         val geometryFactory = GeometryFactory(PrecisionModel(PrecisionModel.FLOATING), srid)
 
@@ -40,16 +54,16 @@ class ACTIngestor(
                     FeatureServerGeoJsonReader(
                         httpClient,
                         blocksGeoJsonUrl,
-                        2000,
-                        geometryFactory
+                        geometryFactory,
+                        listOf("LAND_USE_POLICY_ZONES", "WATER_FLAG", "ADDRESSES")
                     ).asFlow().chunked(16).collect { it.processInParallel { block -> insertBlock(block) } }
                 },
                 async {
                     FeatureServerGeoJsonReader(
                         httpClient,
                         roadReservesGeoJsonUrl,
-                        2000,
-                        geometryFactory
+                        geometryFactory,
+                        listOf("ROAD_NAME")
                     ).asFlow().chunked(16).collect { it.processInParallel { road -> insertRoad(road) } }
                 }
             )
@@ -97,17 +111,6 @@ class ACTIngestor(
         }
         featuresProcessed++
         if (featuresProcessed % 50 == 0) print("\rFeatures added: $featuresProcessed")
-    }
-
-    private fun parseBlockType(input: String?, waterFlag: Boolean?): BlockType {
-        if (input == null) return BlockType.RESIDENTIAL
-        if (waterFlag != null && waterFlag) return BlockType.WATER
-        if (input.matches(przRegex) || input.matches(nuzRegex)) return BlockType.PARK
-        if (input.matches(cfRegex) || input.matches(tszRegex)) return BlockType.COMMUNITY
-        if (input.matches(czRegex) || input.matches(izRegex)) return BlockType.COMMERCIAL
-        if (input.matches(rzRegex)) return BlockType.RESIDENTIAL
-        if (input.matches(desRegex)) return BlockType.PARK
-        return BlockType.RESIDENTIAL
     }
 
     private fun blockInsertSql(numberOfGeometries: Int = 1) = """

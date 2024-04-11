@@ -18,20 +18,38 @@ import org.locationtech.jts.geom.GeometryFactory
 class FeatureServerGeoJsonReader(
     val httpClient: HttpClient,
     val baseUrl: String = "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_BLOCK_CURRENT/FeatureServer/0/query",
-    val recordCount: Int = 2000,
-    val geometryFactory: GeometryFactory
+    val geometryFactory: GeometryFactory,
+    val outFields: List<String>
 ) {
     suspend fun asFlow(): Flow<Geometry> {
         val featureCount = getFeatureCount()
-        val requestCount = (featureCount + recordCount - 1) / recordCount
 
         return channelFlow {
-            (0..requestCount).processInParallel { requestNumber ->
+            // For the first request, we don't know the record count. We sum it here
+            var recordCount = 0
+            val firstGeometryCollection = GeoJSONReader.read(
+                httpClient.get(baseUrl) {
+                    url {
+                        requestAllFeatures()
+                        outFields(outFields)
+                        geoJson()
+                        resultOffset(0)
+                    }
+                }.bodyAsChannel().toInputStream(), geometryFactory
+            ) as GeometryCollection
+            for (i in 0 until firstGeometryCollection.numGeometries) {
+                recordCount++
+                send(firstGeometryCollection.getGeometryN(i))
+            }
+
+            // For subsequent requests, we use the record count from the first request
+            val requestCount = (featureCount + recordCount - 1) / recordCount
+            (1..requestCount).processInParallel { requestNumber ->
                 val geometryCollection = GeoJSONReader.read(
                     httpClient.get(baseUrl) {
                         url {
                             requestAllFeatures()
-                            allOutFields()
+                            outFields(outFields)
                             geoJson()
                             resultOffset(requestNumber * recordCount)
                         }
@@ -57,7 +75,7 @@ class FeatureServerGeoJsonReader(
     private fun URLBuilder.esriJson() = parameters.append("f", "json")
     private fun URLBuilder.geoJson() = parameters.append("f", "geojson")
     private fun URLBuilder.count() = parameters.append("returnCountOnly", "true")
-    private fun URLBuilder.allOutFields() = parameters.append("outFields", "*")
+    private fun URLBuilder.outFields(fields: List<String>) = parameters.append("outFields", fields.joinToString(","))
     private fun URLBuilder.resultOffset(offset: Int) = parameters.append("resultOffset", offset.toString())
 
     @Serializable
