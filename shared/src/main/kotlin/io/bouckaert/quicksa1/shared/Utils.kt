@@ -73,3 +73,47 @@ fun Geometry.safeUnion(other: Geometry, geometryFactory: GeometryFactory): Geome
         return GeometryCollection(geomArray, geometryFactory)
     }
 }
+
+fun Geometry.safeWithin(other: Geometry): Boolean {
+    val thisUnion = this.union()
+    val otherUnion = other.union()
+    if (this !is GeometryCollection && otherUnion !is GeometryCollection) {
+        return thisUnion.within(otherUnion)
+    } else if (otherUnion !is GeometryCollection) {
+        for (i in 0 until thisUnion.numGeometries) {
+            if (thisUnion.getGeometryN(i).within(otherUnion)) return true
+        }
+    } else if (thisUnion !is GeometryCollection) {
+        for (i in 0 until otherUnion.numGeometries) {
+            if (thisUnion.within(otherUnion.getGeometryN(i))) return true
+        }
+    } else {
+        for (i in 0 until thisUnion.numGeometries) {
+            for (j in 0 until otherUnion.numGeometries) {
+                if (thisUnion.getGeometryN(i).within(otherUnion.getGeometryN(j))) return true
+            }
+        }
+    }
+    return false
+}
+
+fun Geometry.safeIntersects(other: Geometry): Boolean {
+    if (this !is GeometryCollection && other !is GeometryCollection) {
+        return this.intersects(other)
+    } else if (other !is GeometryCollection) {
+        for (i in 0 until this.numGeometries) {
+            if (this.getGeometryN(i).intersects(other)) return true
+        }
+    } else if (this !is GeometryCollection) {
+        for (i in 0 until other.numGeometries) {
+            if (this.intersects(other.getGeometryN(i))) return true
+        }
+    } else {
+        for (i in 0 until this.numGeometries) {
+            for (j in 0 until other.numGeometries) {
+                if (this.getGeometryN(i).intersects(other.getGeometryN(j))) return true
+            }
+        }
+    }
+    return false
+}

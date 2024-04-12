@@ -25,6 +25,7 @@ import org.locationtech.jts.algorithm.Angle
 import org.locationtech.jts.geom.*
 import org.locationtech.jts.geom.impl.CoordinateArraySequence
 import org.locationtech.jts.operation.linemerge.LineMerger
+import org.locationtech.jts.simplify.DouglasPeuckerSimplifier
 import org.locationtech.jts.triangulate.VoronoiDiagramBuilder
 import java.awt.BasicStroke
 import java.awt.Color
@@ -169,7 +170,7 @@ class PDFRenderer(
                 val voronoi = try {
                     VoronoiDiagramBuilder().apply {
                         if (road.value.geometry is GeometryCollection) {
-                            setSites(road.value.geometry.union().getGeometryN(0))
+                            setSites(road.value.geometry.union())
                         } else {
                             setSites(road.value.geometry)
                         }
@@ -200,8 +201,7 @@ class PDFRenderer(
                             }
                             if (
                                 individualLine != null &&
-                                road.value.geometry !is GeometryCollection &&
-                                individualLine.within(road.value.geometry)
+                                individualLine.safeWithin(road.value.geometry)
                             ) {
                                 centrelineMerger.add(individualLine)
                                 lineAdded = true
@@ -227,6 +227,10 @@ class PDFRenderer(
                         }
                     }
                     geomArray.toList()
+                }.map {
+                    DouglasPeuckerSimplifier(it)
+                        .apply { setDistanceTolerance(60.0) }
+                        .resultGeometry as LineString
                 }
                 val longest = centreLineStrings.fold(null as LineString?) { acc, lineString: LineString ->
                     if (acc == null) lineString else {
@@ -248,7 +252,7 @@ class PDFRenderer(
                     while (angle > (Math.PI / 2)) angle -= Math.PI
                     graphics2D.rotate(-angle)
                     graphics2D.font = Font("Verdana", Font.PLAIN, 6)
-                    graphics2D.drawString(road.key.titlecase(), 0, 0)
+                    graphics2D.drawString(road.key.titlecase(), -road.key.length*2, 0)
                     graphics2D.transform = origRotate
                 }
             }
