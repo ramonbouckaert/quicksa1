@@ -169,11 +169,11 @@ class PDFRenderer(
             collectedRoads.map { road ->
                 val voronoi = try {
                     VoronoiDiagramBuilder().apply {
-                        if (road.value.geometry is GeometryCollection) {
-                            setSites(road.value.geometry.union())
-                        } else {
-                            setSites(road.value.geometry)
-                        }
+                        setSites(
+                            DouglasPeuckerSimplifier(road.value.geometry.union())
+                                .apply { setDistanceTolerance(2.0) }
+                                .resultGeometry
+                        )
                         setClipEnvelope(road.value.geometry.envelopeInternal)
                     }.getDiagram(geometryFactory)
                 } catch (e: TopologyException) { null }
@@ -229,7 +229,7 @@ class PDFRenderer(
                     geomArray.toList()
                 }.map {
                     DouglasPeuckerSimplifier(it)
-                        .apply { setDistanceTolerance(60.0) }
+                        .apply { setDistanceTolerance(20.0) }
                         .resultGeometry as LineString
                 }
                 val longest = centreLineStrings.fold(null as LineString?) { acc, lineString: LineString ->
