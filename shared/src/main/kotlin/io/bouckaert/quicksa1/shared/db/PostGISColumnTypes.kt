@@ -9,7 +9,7 @@ import org.jetbrains.exposed.sql.*
 fun Table.multiPolygon(name: String, srid: Int = 3857): Column<MultiPolygon> =
     registerColumn(name, MultiPolygonColumnType(srid))
 
-infix fun ExpressionWithColumnType<*>.within(box: PGbox2d): Op<Boolean> = WithinOp(box)
+infix fun Expression<*>.within(op: Expression<*>): Op<Boolean> = WithinOp(listOf(this, op))
 
 private class MultiPolygonColumnType(val srid: Int = 3857) : ColumnType() {
     override fun sqlType() = "GEOMETRY(MultiPolygon, $srid)"
@@ -31,7 +31,7 @@ private class MultiPolygonColumnType(val srid: Int = 3857) : ColumnType() {
     }
 }
 
-private class PolygonColumnType(val srid: Int = 3857) : ColumnType() {
+class PolygonColumnType(val srid: Int = 3857) : ColumnType() {
     override fun sqlType() = "GEOMETRY(Polygon, $srid)"
     override fun valueFromDB(value: Any): Any = if (value is PGgeometry) value.geometry else value
     override fun notNullValueToDB(value: Any): Any {
@@ -51,15 +51,24 @@ private class PolygonColumnType(val srid: Int = 3857) : ColumnType() {
     }
 }
 
-private class WithinOp(val box: PGbox2d) : Op<Boolean>() {
+private class WithinOp(val expressions: List<Expression<*>>) : Op<Boolean>() {
     override fun toQueryBuilder(queryBuilder: QueryBuilder): Unit = queryBuilder {
-        append("&& ST_MakeEnvelope(${box.llb.x}, ${box.llb.y}, ${box.urt.x}, ${box.urt.y}, 3857)")
+        expressions.appendTo(this, separator = " && ") {
+            if (it is ComplexExpression) {
+                append("(", it, ")")
+            } else {
+                append(it)
+            }
+        }
     }
 }
 
-class ST_IntersectsEnvelope(expr1: Expression<*>, box: PGbox2d): CustomFunction<Boolean>(
-    "ST_Intersects",
-    BooleanColumnType(),
-    expr1,
-    LiteralOp(PolygonColumnType(), "ST_MakeEnvelope(${box.llb.x}, ${box.llb.y}, ${box.urt.x}, ${box.urt.y}, 3857)")
+class ST_MakeEnvelope(box: PGbox2d): CustomFunction<Boolean>(
+    "ST_MakeEnvelope",
+    PolygonColumnType(),
+    LiteralOp(LongColumnType(), box.llb.x),
+    LiteralOp(LongColumnType(), box.llb.y),
+    LiteralOp(LongColumnType(), box.urt.x),
+    LiteralOp(LongColumnType(), box.urt.y),
+    LiteralOp(IntegerColumnType(), 3857)
 )

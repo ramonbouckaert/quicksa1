@@ -7,19 +7,25 @@ import com.lowagie.text.pdf.PdfWriter
 import de.topobyte.chromaticity.ColorCode
 import de.topobyte.jts.drawing.DrawMode
 import de.topobyte.jts.drawing.awt.GeometryDrawerGraphics
-import io.bouckaert.quicksa1.db.ST_IntersectsEnvelope
+import io.bouckaert.quicksa1.db.PolygonColumnType
+import io.bouckaert.quicksa1.db.ST_MakeEnvelope
+import io.bouckaert.quicksa1.db.within
 import io.bouckaert.quicksa1.shared.PolygonMapper.mapToJts
-import io.bouckaert.quicksa1.shared.db.entities.Block
-import io.bouckaert.quicksa1.shared.db.entities.Road
 import io.bouckaert.quicksa1.shared.db.entities.SA1
 import io.bouckaert.quicksa1.shared.db.enums.BlockType
+import io.bouckaert.quicksa1.shared.db.selectWith
 import io.bouckaert.quicksa1.shared.db.tables.Blocks
 import io.bouckaert.quicksa1.shared.db.tables.MultiPolygons
 import io.bouckaert.quicksa1.shared.db.tables.Roads
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.fold
+import kotlinx.coroutines.flow.map
 import net.postgis.jdbc.PGbox2d
 import net.postgis.jdbc.geometry.Point
 import org.jetbrains.exposed.sql.Database
-import org.jetbrains.exposed.sql.select
+import org.jetbrains.exposed.sql.LiteralOp
 import org.jetbrains.exposed.sql.transactions.experimental.suspendedTransactionAsync
 import org.locationtech.jts.algorithm.Angle
 import org.locationtech.jts.geom.*
@@ -39,9 +45,9 @@ class PDFRenderer(
 ) {
     private val srid = 3857
     private val geometryFactory = GeometryFactory(PrecisionModel(PrecisionModel.FLOATING), srid)
-    suspend fun renderPdf(sa1: Long): ByteArrayOutputStream? {
+    suspend fun renderPdf(sa1: Long): ByteArrayOutputStream? = coroutineScope {
         log("Fetching SA1 from database")
-        val (sa1DatabaseGeometry, suburbName, suburbIndex) = fetchSA1(sa1) ?: return null
+        val (sa1DatabaseGeometry, suburbName, suburbIndex) = fetchSA1(sa1) ?: return@coroutineScope null
 
         val sa1Geometry = sa1DatabaseGeometry.mapToJts(geometryFactory)
         val sa1InverseGeometry = sa1DatabaseGeometry.mapToJts(geometryFactory, true)
@@ -69,16 +75,14 @@ class PDFRenderer(
             )
         }
 
-        log("Fetching blocks from database")
-        val blocks = fetchBlocks(pageAspectBounds)
+        val blocksDeferred = fetchBlocks(pageAspectBounds)
 
-        log("Fetching roads from database")
-        val roads = fetchRoads(pageAspectBounds)
+        val roadsDeferred = fetchRoads(pageAspectBounds)
 
         log("Instantiating PDF")
         val pdf = Document(pageArea, 0F, 0F, 0F, 0F)
 
-        return ByteArrayOutputStream().let { bos ->
+        return@coroutineScope ByteArrayOutputStream().let { bos ->
             val pdfWriter = PdfWriter.getInstance(pdf, bos)
             pdf.open()
 
@@ -116,146 +120,150 @@ class PDFRenderer(
                 override fun getGraphics(): Graphics2D = graphics2D
             }
 
-            // Sum geometry for roads of the same name
-            val collectedRoads =
-                roads.fold(mutableMapOf<String, RoadDto>()) { acc, roadDto ->
-                    if (roadDto.name != null) {
-                        val existing = acc[roadDto.name]
-                        if (
-                            existing == null
-                        ) {
-                            acc[roadDto.name] = roadDto
-                        } else {
-                            acc[roadDto.name] = RoadDto(
-                                roadDto.name,
-                                existing.geometry.safeUnion(roadDto.geometry, geometryFactory)
-                            )
-                        }
-                    }
-                    acc
-                }
-
-
-            // Draw roads geometry
-            renderer.setColorBackground(ColorCode(180, 180, 180))
-            collectedRoads.forEach { road ->
-                for (i in 0 until road.value.geometry.numGeometries) {
-                    renderer.drawGeometry(road.value.geometry.getGeometryN(i), DrawMode.FILL)
-                }
-            }
-
-            // Draw blocks geometry
-            renderer.setColorForeground(ColorCode(0, 0, 0))
-            graphics2D.stroke = BasicStroke(0.2F)
-            blocks.forEach { block ->
-                when (block.type) {
-                    BlockType.RESIDENTIAL -> renderer.setColorBackground(ColorCode(255, 255, 255))
-                    BlockType.COMMERCIAL -> renderer.setColorBackground(ColorCode(200, 200, 200))
-                    BlockType.COMMUNITY -> renderer.setColorBackground(ColorCode(255, 215, 145))
-                    BlockType.PARK -> renderer.setColorBackground(ColorCode(122, 171, 113))
-                    BlockType.WATER -> renderer.setColorBackground(ColorCode(113, 141, 171))
-                }
-                for (i in 0 until block.geometry.numGeometries) {
-                    renderer.drawGeometry(block.geometry.getGeometryN(i), DrawMode.FILL_OUTLINE)
-                }
-                if (block.streetNumber != null) {
-                    val centroid = block.geometry.centroid
-                    val text = block.streetNumber.toString()
-                    renderer.drawString(centroid.x, centroid.y, text, 5, -text.length, 0)
-                }
-            }
-
-            // Draw road labels
-            collectedRoads.map { road ->
-                val voronoi = try {
-                    VoronoiDiagramBuilder().apply {
-                        setSites(
-                            DouglasPeuckerSimplifier(road.value.geometry.union())
-                                .apply { setDistanceTolerance(2.0) }
-                                .resultGeometry
-                        )
-                        setClipEnvelope(road.value.geometry.envelopeInternal)
-                    }.getDiagram(geometryFactory)
-                } catch (e: TopologyException) { null }
-
-                val centrelineMerger = LineMerger()
-                var lineAdded = false
-                if (voronoi != null) {
-                    for (i in 0 until voronoi.numGeometries) {
-                        val geom = voronoi.getGeometryN(i).boundary
-                        for (j in 0 until geom.numPoints - 1) {
-                            val actualGeom: LineString =
-                                if (geom is MultiLineString) geom.getGeometryN(0) as LineString else geom as LineString
-                            val individualLine = try {
-                                LineString(
-                                    CoordinateArraySequence(
-                                        arrayOf(
-                                            actualGeom.getCoordinateN(j),
-                                            actualGeom.getCoordinateN(j + 1)
-                                        )
-                                    ),
-                                    geometryFactory
-                                )
-                            } catch (e: IndexOutOfBoundsException) {
-                                null
-                            }
+            suspendedTransactionAsync(db = database) {
+                // Sum geometry for roads of the same name
+                val collectedRoads =
+                    roadsDeferred.fold(mutableMapOf<String, RoadDto>()) { acc, roadDto ->
+                        if (roadDto.name != null) {
+                            val existing = acc[roadDto.name]
                             if (
-                                individualLine != null &&
-                                individualLine.safeWithin(road.value.geometry)
+                                existing == null
                             ) {
-                                centrelineMerger.add(individualLine)
-                                lineAdded = true
+                                acc[roadDto.name] = roadDto
+                            } else {
+                                acc[roadDto.name] = RoadDto(
+                                    roadDto.name,
+                                    existing.geometry.safeUnion(roadDto.geometry, geometryFactory)
+                                )
                             }
                         }
+                        acc
+                    }
+
+
+                // Draw roads geometry
+                renderer.setColorBackground(ColorCode(180, 180, 180))
+                collectedRoads.forEach { road ->
+                    for (i in 0 until road.value.geometry.numGeometries) {
+                        renderer.drawGeometry(road.value.geometry.getGeometryN(i), DrawMode.FILL)
                     }
                 }
-                @Suppress("UNCHECKED_CAST")
-                val centreLineStrings: Collection<LineString> = if (lineAdded) {
-                    centrelineMerger.mergedLineStrings as Collection<LineString>
-                } else {
-                    var geomArray: Array<LineString> = emptyArray()
-                    when (road.value.geometry) {
-                        is LineString -> geomArray += road.value.geometry as LineString
-                        is Polygon -> geomArray += (road.value.geometry as Polygon).exteriorRing
-                        is MultiPolygon, is GeometryCollection -> {
-                            for (i in 0 until road.value.geometry.numGeometries) {
-                                when (val innerGeom = road.value.geometry.getGeometryN(i)) {
-                                    is LineString -> geomArray += innerGeom
-                                    is Polygon -> geomArray += innerGeom.exteriorRing
+
+                // Draw blocks geometry
+                renderer.setColorForeground(ColorCode(0, 0, 0))
+                graphics2D.stroke = BasicStroke(0.2F)
+                blocksDeferred.collect { block ->
+                    when (block.type) {
+                        BlockType.RESIDENTIAL -> renderer.setColorBackground(ColorCode(255, 255, 255))
+                        BlockType.COMMERCIAL -> renderer.setColorBackground(ColorCode(200, 200, 200))
+                        BlockType.COMMUNITY -> renderer.setColorBackground(ColorCode(255, 215, 145))
+                        BlockType.PARK -> renderer.setColorBackground(ColorCode(122, 171, 113))
+                        BlockType.WATER -> renderer.setColorBackground(ColorCode(113, 141, 171))
+                    }
+                    for (i in 0 until block.geometry.numGeometries) {
+                        renderer.drawGeometry(block.geometry.getGeometryN(i), DrawMode.FILL_OUTLINE)
+                    }
+                    if (block.streetNumber != null) {
+                        val centroid = block.geometry.centroid
+                        val text = block.streetNumber.toString()
+                        renderer.drawString(centroid.x, centroid.y, text, 5, -text.length, 0)
+                    }
+                }
+
+                // Draw road labels
+                collectedRoads.map { road ->
+                    val voronoi = try {
+                        VoronoiDiagramBuilder().apply {
+                            setSites(
+                                DouglasPeuckerSimplifier(road.value.geometry.union())
+                                    .apply { setDistanceTolerance(2.0) }
+                                    .resultGeometry
+                            )
+                            setClipEnvelope(road.value.geometry.envelopeInternal)
+                        }.getDiagram(geometryFactory)
+                    } catch (e: TopologyException) {
+                        null
+                    }
+
+                    val centrelineMerger = LineMerger()
+                    var lineAdded = false
+                    if (voronoi != null) {
+                        for (i in 0 until voronoi.numGeometries) {
+                            val geom = voronoi.getGeometryN(i).boundary
+                            for (j in 0 until geom.numPoints - 1) {
+                                val actualGeom: LineString =
+                                    if (geom is MultiLineString) geom.getGeometryN(0) as LineString else geom as LineString
+                                val individualLine = try {
+                                    LineString(
+                                        CoordinateArraySequence(
+                                            arrayOf(
+                                                actualGeom.getCoordinateN(j),
+                                                actualGeom.getCoordinateN(j + 1)
+                                            )
+                                        ),
+                                        geometryFactory
+                                    )
+                                } catch (e: IndexOutOfBoundsException) {
+                                    null
+                                }
+                                if (
+                                    individualLine != null &&
+                                    individualLine.safeWithin(road.value.geometry)
+                                ) {
+                                    centrelineMerger.add(individualLine)
+                                    lineAdded = true
                                 }
                             }
                         }
                     }
-                    geomArray.toList()
-                }.map {
-                    DouglasPeuckerSimplifier(it)
-                        .apply { setDistanceTolerance(20.0) }
-                        .resultGeometry as LineString
-                }
-                val longest = centreLineStrings.fold(null as LineString?) { acc, lineString: LineString ->
-                    if (acc == null) lineString else {
-                        if (acc.length > lineString.length) acc else lineString
+                    @Suppress("UNCHECKED_CAST")
+                    val centreLineStrings: Collection<LineString> = if (lineAdded) {
+                        centrelineMerger.mergedLineStrings as Collection<LineString>
+                    } else {
+                        var geomArray: Array<LineString> = emptyArray()
+                        when (road.value.geometry) {
+                            is LineString -> geomArray += road.value.geometry as LineString
+                            is Polygon -> geomArray += (road.value.geometry as Polygon).exteriorRing
+                            is MultiPolygon, is GeometryCollection -> {
+                                for (i in 0 until road.value.geometry.numGeometries) {
+                                    when (val innerGeom = road.value.geometry.getGeometryN(i)) {
+                                        is LineString -> geomArray += innerGeom
+                                        is Polygon -> geomArray += innerGeom.exteriorRing
+                                    }
+                                }
+                            }
+                        }
+                        geomArray.toList()
+                    }.map {
+                        DouglasPeuckerSimplifier(it)
+                            .apply { setDistanceTolerance(20.0) }
+                            .resultGeometry as LineString
                     }
-                }.apply { this?.normalize() }
-                if (longest != null) {
-                    val origRotate = graphics2D.transform
-                    graphics2D.translate(
-                        pageCoordinateTransformer.getX(longest.centroid.x),
-                        pageCoordinateTransformer.getY(longest.centroid.y)
-                    )
-                    var angle = Angle.normalizePositive(
-                        Angle.angle(
-                            longest.getCoordinateN(0),
-                            longest.getCoordinateN(1)
+                    val longest = centreLineStrings.fold(null as LineString?) { acc, lineString: LineString ->
+                        if (acc == null) lineString else {
+                            if (acc.length > lineString.length) acc else lineString
+                        }
+                    }.apply { this?.normalize() }
+                    if (longest != null) {
+                        val origRotate = graphics2D.transform
+                        graphics2D.translate(
+                            pageCoordinateTransformer.getX(longest.centroid.x),
+                            pageCoordinateTransformer.getY(longest.centroid.y)
                         )
-                    )
-                    while (angle > (Math.PI / 2)) angle -= Math.PI
-                    graphics2D.rotate(-angle)
-                    graphics2D.font = Font("Verdana", Font.PLAIN, 6)
-                    graphics2D.drawString(road.key.titlecase(), -road.key.length*2, 0)
-                    graphics2D.transform = origRotate
+                        var angle = Angle.normalizePositive(
+                            Angle.angle(
+                                longest.getCoordinateN(0),
+                                longest.getCoordinateN(1)
+                            )
+                        )
+                        while (angle > (Math.PI / 2)) angle -= Math.PI
+                        graphics2D.rotate(-angle)
+                        graphics2D.font = Font("Verdana", Font.PLAIN, 6)
+                        graphics2D.drawString(road.key.titlecase(), -road.key.length * 2, 0)
+                        graphics2D.transform = origRotate
+                    }
                 }
-            }
+            }.await()
 
             // Draw SA1 geometry
             graphics2D.stroke = BasicStroke(5F)
@@ -285,6 +293,21 @@ class PDFRenderer(
                 pageArea.height.toInt() - borderWidth
             )
 
+            // Add my name to the bottom-right
+            val signature1 = "QuickSA1 was written by Ramon Bouckaert"
+            val signature2 = "www.quicksa1.com"
+            graphics2D.font = Font("Verdana", Font.PLAIN, 6)
+            graphics2D.drawString(
+                signature1,
+                pageArea.width.toInt() - (borderWidth + graphics2D.fontMetrics.stringWidth(signature1)),
+                pageArea.height.toInt() - (borderWidth + graphics2D.fontMetrics.height)
+            )
+            graphics2D.drawString(
+                signature2,
+                pageArea.width.toInt() - (borderWidth + graphics2D.fontMetrics.stringWidth(signature2)),
+                pageArea.height.toInt() - borderWidth
+            )
+
             graphics2D.dispose()
 
             pdf.close()
@@ -305,44 +328,44 @@ class PDFRenderer(
             }
         }.await()
 
-    private suspend fun fetchBlocks(bounds: Envelope): Collection<BlockDto> =
-        suspendedTransactionAsync(db = database) {
-            Block.wrapRows(
-                Blocks.innerJoin(MultiPolygons).select {
-                    ST_IntersectsEnvelope(
-                        MultiPolygons.geometry, PGbox2d(
-                            Point(bounds.minX, bounds.maxY),
-                            Point(bounds.maxX, bounds.minY)
-                        )
-                    ) eq true
-                }
-            ).map {
-                BlockDto(
-                    it.streetNumber,
-                    it.type,
-                    it.polygon.geometry.mapToJts(geometryFactory)
+    private fun fetchBlocks(bounds: Envelope): Flow<BlockDto> =
+        Blocks.innerJoin(MultiPolygons).selectWith(
+            ST_MakeEnvelope(
+                PGbox2d(
+                    Point(bounds.minX, bounds.maxY),
+                    Point(bounds.maxX, bounds.minY)
                 )
-            }
-        }.await()
+            )
+        ) {
+            MultiPolygons.geometry.within(
+                LiteralOp(PolygonColumnType(), "w.val")
+            )
+        }.asFlow().map {
+            BlockDto(
+                it[Blocks.streetNumber],
+                it[Blocks.type],
+                it[MultiPolygons.geometry].mapToJts(geometryFactory)
+            )
+        }
 
-    private suspend fun fetchRoads(bounds: Envelope): Collection<RoadDto> =
-        suspendedTransactionAsync(db = database) {
-            Road.wrapRows(
-                Roads.innerJoin(MultiPolygons).select {
-                    ST_IntersectsEnvelope(
-                        MultiPolygons.geometry, PGbox2d(
-                            Point(bounds.minX, bounds.maxY),
-                            Point(bounds.maxX, bounds.minY)
-                        )
-                    ) eq true
-                }
-            ).map {
-                RoadDto(
-                    it.name,
-                    it.polygon.geometry.mapToJts(geometryFactory)
+    private fun fetchRoads(bounds: Envelope): Flow<RoadDto> =
+        Roads.innerJoin(MultiPolygons).selectWith(
+            ST_MakeEnvelope(
+                PGbox2d(
+                    Point(bounds.minX, bounds.maxY),
+                    Point(bounds.maxX, bounds.minY)
                 )
-            }
-        }.await()
+            )
+        ) {
+            MultiPolygons.geometry.within(
+                LiteralOp(PolygonColumnType(), "w.val")
+            )
+        }.asFlow().map {
+            RoadDto(
+                it[Roads.name],
+                it[MultiPolygons.geometry].mapToJts(geometryFactory)
+            )
+        }
 
     private data class BlockDto(
         val streetNumber: Int?,
