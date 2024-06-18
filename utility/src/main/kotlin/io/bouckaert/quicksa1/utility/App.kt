@@ -3,6 +3,7 @@ package io.bouckaert.quicksa1.utility
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.bouckaert.quicksa1.shared.PDFRenderer
+import io.bouckaert.quicksa1.shared.PDFRendererDeps
 import io.bouckaert.quicksa1.utility.ingestor.ABSIngestor
 import io.bouckaert.quicksa1.utility.ingestor.ACTIngestor
 import io.ktor.client.*
@@ -10,12 +11,14 @@ import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.sql.Database
 import java.io.FileOutputStream
 import java.security.cert.X509Certificate
 import java.sql.Connection
-import java.util.Scanner
+import java.util.*
 import javax.net.ssl.X509TrustManager
 
 class App(
@@ -118,7 +121,18 @@ class App(
 
         print("Produce test PDF? (y/n): ")
         if (keyboard.nextLine().lowercase().startsWith("y")) {
-            val pdfOutputStream = runBlocking { PDFRenderer(database, ::println).renderPdf(80106106413) }
+            val startTime = System.currentTimeMillis()
+            val pdfOutputStream = runBlocking {
+                async(Dispatchers.Default) {
+                    PDFRenderer(
+                        PDFRendererDeps(),
+                        database,
+                        ::println
+                    ).renderPdf(80106106413)
+                }.await()
+            }
+            val endTime = System.currentTimeMillis()
+            println("That took ${endTime - startTime}ms")
             if (pdfOutputStream == null) {
                 println("SA1 could not be found in the database")
                 return

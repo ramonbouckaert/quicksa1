@@ -30,6 +30,7 @@ dependencies {
     implementation("org.jetbrains.exposed:exposed-core:0.40.1")
     implementation("org.jetbrains.exposed:exposed-jdbc:0.40.1")
     implementation("org.jetbrains.exposed:exposed-dao:0.40.1")
+    implementation("org.locationtech.jts:jts-core:1.16.1")
     testImplementation(kotlin("test"))
 }
 
