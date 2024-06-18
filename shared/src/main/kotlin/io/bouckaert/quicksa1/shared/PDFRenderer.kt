@@ -171,7 +171,7 @@ class PDFRenderer(
                 }
 
                 // Draw road labels
-                collectedRoads.map { road ->
+                collectedRoads.processInParallel(this@coroutineScope.coroutineContext) { road ->
                     val voronoi = try {
                         VoronoiDiagramBuilder().apply {
                             setSites(
@@ -216,8 +216,8 @@ class PDFRenderer(
                             }
                         }
                     }
-                    @Suppress("UNCHECKED_CAST")
-                    val centreLineStrings: Collection<LineString> = if (lineAdded) {
+                    val centreLineStrings: Flow<LineString> = if (lineAdded) {
+                        @Suppress("UNCHECKED_CAST")
                         centrelineMerger.mergedLineStrings as Collection<LineString>
                     } else {
                         var geomArray: Array<LineString> = emptyArray()
@@ -234,7 +234,7 @@ class PDFRenderer(
                             }
                         }
                         geomArray.toList()
-                    }.map {
+                    }.asFlow().map {
                         DouglasPeuckerSimplifier(it)
                             .apply { setDistanceTolerance(20.0) }
                             .resultGeometry as LineString

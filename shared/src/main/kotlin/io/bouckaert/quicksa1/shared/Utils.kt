@@ -1,10 +1,14 @@
 package io.bouckaert.quicksa1.shared
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import org.locationtech.jts.geom.Geometry
 import org.locationtech.jts.geom.GeometryCollection
 import org.locationtech.jts.geom.GeometryFactory
 import java.awt.Rectangle
+import kotlin.coroutines.CoroutineContext
 import kotlin.math.roundToInt
 
 fun <K, V> Map<out K?, V?>.filterNotNull(): Map<K, V> = this.mapNotNull {
@@ -16,7 +20,7 @@ fun <K, V> Map<out K?, V?>.filterNotNull(): Map<K, V> = this.mapNotNull {
 }.toMap()
 
 suspend fun <T, R> Iterable<T>.processInParallel(
-    dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    dispatcher: CoroutineContext = Dispatchers.IO,
     processBlock: suspend (v: T) -> R,
 ): List<R> = coroutineScope { // or supervisorScope
     map {
@@ -24,7 +28,7 @@ suspend fun <T, R> Iterable<T>.processInParallel(
     }.awaitAll()
 }
 suspend fun <K, V, R> Map<out K, V>.processInParallel(
-    dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    dispatcher: CoroutineContext = Dispatchers.IO,
     processBlock: suspend (Map.Entry<K, V>) -> R,
 ): List<R> = coroutineScope { // or supervisorScope
     map {
