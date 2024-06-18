@@ -6,6 +6,7 @@ QuickSA1 is an easy-to-use tool for rapidly generating printable PDF maps of SA1
 QuickSA1 is written in Kotlin, and expects a Postgresql database with the PostGIS extension installed. When built, QuickSA1 produces two executable JARs: a command-line tool for setting up QuickSA1, and a JAR that can be used as an AWS Lambda function.
 
 A hosted version of this tool can be used at [https://www.quicksa1.com/{INSERT_SA1_HERE}](https://www.quicksa1.com/80106106801)
+You can also search for SA1s by their human-readable names like so: [https://www.quicksa1.com/braddon](https://www.quicksa1.com/braddon)
 
 ## Build
 To build all modules, run:
@@ -17,7 +18,7 @@ This will produce `build` folders for each of the modules: `lambda`, `shared` an
 - `lambda/build/libs/lambda-all.jar` is a shaded JAR that can be used as an AWS Lambda function
 - `utility/builds/libs/utility-all.jar` is a shaded executable JAR that provides a command-line utility for setting up, populating, and testing a QuickSA1 database.
 
-The build targets Java 17.
+The build targets Java 21.
 
 ## Run
 To use the utility tool, run:
@@ -32,7 +33,7 @@ The tool will prompt you for:
 - an option to produce a test PDF
 
 To use the lambda, configure an AWS Lambda function:
-- select Java 17 for the language
+- select Java 21 for the language
 - set the handler reference to `io.bouckaert.quicksa1.lambda.ServePDF::handleRequest`
 - create an environment variable called `DB_URL` and set it to your JDBC connection URL (starting with `jdbc:postgresql_postGIS://`)
 - create an environment variable called `DB_DRIVER` and set it to your JDBC driver, it will probably be `net.postgis.jdbc.DriverWrapper`
@@ -50,9 +51,5 @@ You can test the lambda by using the following event JSON:
 You should receive back a JSON object that has a `body` property that contains a Base64-encoded binary PDF file.
 
 ## TODO
-- I want the maps to be entirely vector based, no pixelated raster underlay.
-- I want blocks and house number on the map. I will probably add blocks in the data model and write ingestors for each state planning authority. This might remove the need for an underlay altogether.
-- It needs to be faster! It's a bit too slow right now to be worthy of the name QuickSA1
+- Currently the cadastre only works for the ACT! I need to write an ingestor for each state/territory planning authority.
 - I want to be able to enter an SA2 code and generate a multi-page PDF of every SA1 within that SA2.
-- I want to be able to request SA1s by their human-readable name (e.g. `Suburb 5`) as well as by their code.
-- I want a web interface of some kind so you can find and choose the SA1 to generate, rather than having to know the code.
