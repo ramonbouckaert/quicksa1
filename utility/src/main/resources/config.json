@@ -1,6 +1,6 @@
 {
   "database": {
-    "url": "jdbc:postgresql_postGIS://quicksa1-db.cmuhohsstc8i.ap-southeast-2.rds.amazonaws.com/quicksa1?user=postgres&password=postgresram&currentSchema=public",
+    "url": "jdbc:postgresql_postGIS://INSERT-YOUR-JDBC-CONNECTION-URI-HERE",
     "driver": "net.postgis.jdbc.DriverWrapper"
   },
   "httpClient": {},
