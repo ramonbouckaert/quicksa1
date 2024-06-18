@@ -5,4 +5,4 @@ plugins {
 }
 
 group = "io.bouckaert"
-version = "0.2-SNAPSHOT"
+version = "0.2"
