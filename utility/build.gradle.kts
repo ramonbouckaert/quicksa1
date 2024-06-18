@@ -18,6 +18,14 @@ repositories {
     maven {
         url = uri("https://mvn.slimjars.com")
     }
+    maven {
+        url = uri("https://maven.pkg.github.com/ramonbouckaert/jts2geojson-kotlin")
+        credentials {
+
+            username = project.findProperty("github.user") as String? ?: System.getenv("USERNAME")
+            password = project.findProperty("github.key") as String? ?: System.getenv("TOKEN")
+        }
+    }
     mavenCentral()
     mavenLocal()
 }
